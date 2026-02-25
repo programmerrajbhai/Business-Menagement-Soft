@@ -1,0 +1,75 @@
+/* assets/css/style.css */
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #f8f9fa; /* ছবির মতো হালকা ব্যাকগ্রাউন্ড */
+    overflow-x: hidden;
+}
+
+#wrapper {
+    display: flex;
+    width: 100%;
+    align-items: stretch;
+}
+
+/* Sidebar Styles */
+#sidebar {
+    min-width: 260px;
+    max-width: 260px;
+    background: #1e1e2d; /* ডার্ক থিম সাইডবার */
+    color: #fff;
+    min-height: 100vh;
+    transition: all 0.3s;
+}
+
+#sidebar .sidebar-header {
+    padding: 20px;
+    background: #1b1b28;
+    text-align: center;
+    font-size: 22px;
+    font-weight: bold;
+    color: #28a745; /* Green Text */
+}
+
+#sidebar ul.components {
+    padding: 15px 0;
+}
+
+#sidebar ul li a {
+    padding: 12px 20px;
+    font-size: 15px;
+    display: block;
+    color: #a2a3b7;
+    text-decoration: none;
+    transition: 0.2s;
+}
+
+#sidebar ul li a:hover, #sidebar ul li a.active {
+    color: #fff;
+    background: #28a745; /* Green Active Background */
+    border-left: 4px solid #fff;
+}
+
+#sidebar ul li a i {
+    margin-right: 10px;
+    width: 20px;
+    text-align: center;
+}
+
+/* Top Navbar Styles */
+#content {
+    width: 100%;
+    transition: all 0.3s;
+}
+
+.top-navbar {
+    background: #fff;
+    padding: 15px 20px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.main-content {
+    padding: 25px;
+}
