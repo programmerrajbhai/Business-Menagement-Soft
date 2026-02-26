@@ -7,7 +7,7 @@ require 'includes/functions.php';
 $success_msg = "";
 $error_msg = "";
 
-// [অ্যাকশন ১] নতুন সাপ্লায়ার/মহাজন যুক্ত করা
+// [অ্যাকশন ১] নতুন সাপ্লায়ার/মহাজন যুক্ত করা (SaaS Update: shop_id যুক্ত করা হয়েছে)
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_supplier'])) {
     $company_name = $_POST['company_name'];
     $contact_person = $_POST['contact_person'];
@@ -16,16 +16,16 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_supplier'])) {
     $total_due = !empty($_POST['total_due']) ? $_POST['total_due'] : 0.00;
 
     try {
-        $sql = "INSERT INTO suppliers (company_name, contact_person, phone, address, total_due) VALUES (?, ?, ?, ?, ?)";
+        $sql = "INSERT INTO suppliers (shop_id, company_name, contact_person, phone, address, total_due) VALUES (?, ?, ?, ?, ?, ?)";
         $stmt = $pdo->prepare($sql);
-        $stmt->execute([$company_name, $contact_person, $phone, $address, $total_due]);
+        $stmt->execute([$current_shop_id, $company_name, $contact_person, $phone, $address, $total_due]);
         $success_msg = "নতুন সাপ্লায়ার/কোম্পানি সফলভাবে যোগ করা হয়েছে!";
     } catch(PDOException $e) {
         $error_msg = "সমস্যা হয়েছে: " . $e->getMessage();
     }
 }
 
-// [অ্যাকশন ২] মহাজনকে টাকা পেমেন্ট করা (Pay to Supplier)
+// [অ্যাকশন ২] মহাজনকে টাকা পেমেন্ট করা (Pay to Supplier) (SaaS Update)
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['pay_supplier'])) {
     $s_id = $_POST['supplier_id'];
     $amount = $_POST['amount'];
@@ -36,23 +36,23 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['pay_supplier'])) {
     try {
         $pdo->beginTransaction();
         
-        // ১. সাপ্লায়ারের মোট দেনা কমানো
-        $stmtDue = $pdo->prepare("UPDATE suppliers SET total_due = total_due - ? WHERE id = ?");
-        $stmtDue->execute([$amount, $s_id]);
+        // ১. সাপ্লায়ারের মোট দেনা কমানো (shop_id ফিল্টার)
+        $stmtDue = $pdo->prepare("UPDATE suppliers SET total_due = total_due - ? WHERE id = ? AND shop_id = ?");
+        $stmtDue->execute([$amount, $s_id, $current_shop_id]);
 
-        // ২. ক্যাশবুকে খরচের এন্ট্রি করা (supplier_id সহ)
-        $stmtCash = $pdo->prepare("INSERT INTO transactions (type, amount, payment_method, note, date, user_id, supplier_id) VALUES ('Supplier Payment', ?, ?, ?, ?, ?, ?)");
-        $stmtCash->execute([$amount, $method, $note, $date, $current_user_id, $s_id]);
+        // ২. ক্যাশবুকে খরচের এন্ট্রি করা (shop_id সহ)
+        $stmtCash = $pdo->prepare("INSERT INTO transactions (shop_id, type, amount, payment_method, note, date, user_id, supplier_id) VALUES (?, 'Supplier Payment', ?, ?, ?, ?, ?, ?)");
+        $stmtCash->execute([$current_shop_id, $amount, $method, $note, $date, $current_user_id, $s_id]);
 
         $pdo->commit();
-        $success_msg = "মহাজনকে পেমেন্ট সফলভাবে সম্পন্ন হয়েছে এবং ক্যাশবুক আপডেট হয়েছে!";
+        $success_msg = "মহাজনকে পেমেন্ট সফলভাবে সম্পন্ন হয়েছে এবং ক্যাশবুক আপডেট হয়েছে!";
     } catch(PDOException $e) {
         $pdo->rollBack();
         $error_msg = "পেমেন্ট করতে সমস্যা হয়েছে: " . $e->getMessage();
     }
 }
 
-// [অ্যাকশন ৩] ম্যানুয়াল দেনা/বকেয়া যোগ করা (Manual Due Add)
+// [অ্যাকশন ৩] ম্যানুয়াল দেনা/বকেয়া যোগ করা (Manual Due Add) (SaaS Update)
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_manual_due'])) {
     $s_id = $_POST['supplier_id'];
     $amount = $_POST['amount'];
@@ -62,16 +62,16 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_manual_due'])) {
     try {
         $pdo->beginTransaction();
         
-        // ১. সাপ্লায়ারের দেনা বাড়ানো
-        $stmtDue = $pdo->prepare("UPDATE suppliers SET total_due = total_due + ? WHERE id = ?");
-        $stmtDue->execute([$amount, $s_id]);
+        // ১. সাপ্লায়ারের দেনা বাড়ানো (shop_id ফিল্টার)
+        $stmtDue = $pdo->prepare("UPDATE suppliers SET total_due = total_due + ? WHERE id = ? AND shop_id = ?");
+        $stmtDue->execute([$amount, $s_id, $current_shop_id]);
 
-        // ২. লেজারে দেখানোর জন্য ট্রানজেকশনে এন্ট্রি (ক্যাশবুক থেকে টাকা কাটবে না)
-        $stmtCash = $pdo->prepare("INSERT INTO transactions (type, amount, payment_method, note, date, user_id, supplier_id) VALUES ('Supplier Manual Due', ?, 'N/A', ?, ?, ?, ?)");
-        $stmtCash->execute([$amount, $note, $date, $current_user_id, $s_id]);
+        // ২. লেজারে দেখানোর জন্য ট্রানজেকশনে এন্ট্রি (shop_id সহ)
+        $stmtCash = $pdo->prepare("INSERT INTO transactions (shop_id, type, amount, payment_method, note, date, user_id, supplier_id) VALUES (?, 'Supplier Manual Due', ?, 'N/A', ?, ?, ?, ?)");
+        $stmtCash->execute([$current_shop_id, $amount, $note, $date, $current_user_id, $s_id]);
 
         $pdo->commit();
-        $success_msg = "মহাজনের খাতায় নতুন দেনা সফলভাবে যোগ করা হয়েছে!";
+        $success_msg = "মহাজনের খাতায় নতুন দেনা সফলভাবে যোগ করা হয়েছে!";
     } catch(PDOException $e) {
         $pdo->rollBack();
         $error_msg = "দেনা যোগ করতে সমস্যা হয়েছে: " . $e->getMessage();
@@ -105,28 +105,28 @@ include 'includes/sidebar.php';
 <?php endif; ?>
 
 <?php if($view_profile_id): 
-    // সাপ্লায়ারের ডাটা আনা
-    $stmt = $pdo->prepare("SELECT * FROM suppliers WHERE id = ?");
-    $stmt->execute([$view_profile_id]);
+    // সাপ্লায়ারের ডাটা আনা (SaaS Update: shop_id ফিল্টার)
+    $stmt = $pdo->prepare("SELECT * FROM suppliers WHERE id = ? AND shop_id = ?");
+    $stmt->execute([$view_profile_id, $current_shop_id]);
     $supplier = $stmt->fetch();
 
     if(!$supplier) {
-        die("<div class='alert alert-danger text-center mt-5'>Supplier Not Found!</div>");
+        die("<div class='alert alert-danger text-center mt-5'>Supplier Not Found or Access Denied!</div>");
     }
 
-    // সাপ্লায়ারের সম্পূর্ণ লেজার (Purchase + Payment Sent + Manual Due) একসাথে আনা
+    // সাপ্লায়ারের সম্পূর্ণ লেজার (SaaS Update: সব সাবকোয়েরিতে shop_id ফিল্টার)
     $ledger_stmt = $pdo->prepare("
         SELECT purchase_date as date, invoice_no as ref, 'Purchase Bill' as type, total_amount as bill, paid_amount as paid, due_amount as due 
-        FROM purchases WHERE supplier_id = ?
+        FROM purchases WHERE supplier_id = ? AND shop_id = ?
         UNION ALL
         SELECT date as date, note as ref, 'Payment Sent' as type, 0 as bill, amount as paid, 0 as due 
-        FROM transactions WHERE type = 'Supplier Payment' AND supplier_id = ?
+        FROM transactions WHERE type = 'Supplier Payment' AND supplier_id = ? AND shop_id = ?
         UNION ALL
         SELECT date as date, note as ref, 'Manual Due Added' as type, amount as bill, 0 as paid, amount as due 
-        FROM transactions WHERE type = 'Supplier Manual Due' AND supplier_id = ?
+        FROM transactions WHERE type = 'Supplier Manual Due' AND supplier_id = ? AND shop_id = ?
         ORDER BY date DESC
     ");
-    $ledger_stmt->execute([$view_profile_id, $view_profile_id, $view_profile_id]);
+    $ledger_stmt->execute([$view_profile_id, $current_shop_id, $view_profile_id, $current_shop_id, $view_profile_id, $current_shop_id]);
     $ledgers = $ledger_stmt->fetchAll();
 ?>
     <div class="d-flex justify-content-between align-items-center mb-4 no-print">
@@ -226,7 +226,10 @@ include 'includes/sidebar.php';
     // ==========================================
     // VIEW 2: SUPPLIER LIST & SEARCH (মেইন পেজ)
     // ==========================================
-    $suppliers = $pdo->query("SELECT * FROM suppliers ORDER BY id DESC")->fetchAll();
+    // SaaS Update: শুধু বর্তমান দোকানের মহাজন টানা হবে
+    $stmt = $pdo->prepare("SELECT * FROM suppliers WHERE shop_id = ? ORDER BY id DESC");
+    $stmt->execute([$current_shop_id]);
+    $suppliers = $stmt->fetchAll();
 ?>
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h3 class="fw-bold text-dark"><i class="fas fa-truck text-warning"></i> Suppliers & Companies</h3>
@@ -239,7 +242,7 @@ include 'includes/sidebar.php';
         <div class="col-md-6">
             <div class="input-group shadow-sm">
                 <span class="input-group-text bg-white border-warning border-end-0"><i class="fas fa-search text-warning"></i></span>
-                <input type="text" id="searchInput" class="form-control border-warning border-start-0 form-control-lg" placeholder="কোম্পানি বা মহাজনের নাম দিয়ে খুঁজুন..." onkeyup="filterTable()">
+                <input type="text" id="searchInput" class="form-control border-warning border-start-0 form-control-lg" placeholder="কোম্পানি বা মহাজনের নাম দিয়ে খুঁজুন..." onkeyup="filterTable()">
             </div>
         </div>
     </div>
@@ -361,7 +364,7 @@ include 'includes/sidebar.php';
                     </div>
                     <div class="mb-3">
                         <label class="form-label fw-bold">Note / Details</label>
-                        <input type="text" name="note" class="form-control" value="মহাজনকে বকেয়া পরিশোধ" required>
+                        <input type="text" name="note" class="form-control" value="মহাজনকে বকেয়া পরিশোধ" required>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -385,12 +388,12 @@ include 'includes/sidebar.php';
                     
                     <div class="text-center mb-3">
                         <h5 class="fw-bold text-primary mb-0" id="add_due_company_name">Company Name</h5>
-                        <small class="text-muted">মাল কেনা ছাড়াই মহাজনের পাওনা টাকা যোগ করুন।</small>
+                        <small class="text-muted">মাল কেনা ছাড়াই মহাজনের পাওনা টাকা যোগ করুন।</small>
                     </div>
                     <hr>
                     <div class="mb-3">
                         <label class="form-label fw-bold text-danger">Due Amount (৳) *</label>
-                        <input type="number" step="0.01" name="amount" class="form-control form-control-lg border-danger text-danger fw-bold" placeholder="কত টাকা দেনা বাড়াবেন?" required>
+                        <input type="number" step="0.01" name="amount" class="form-control form-control-lg border-danger text-danger fw-bold" placeholder="কত টাকা দেনা বাড়াবেন?" required>
                     </div>
                     <div class="mb-3">
                         <label class="form-label fw-bold">Reason / Note *</label>
@@ -406,7 +409,7 @@ include 'includes/sidebar.php';
 </div>
 
 <script>
-    // রিয়েল-টাইম স্মার্ট সাপ্লায়ার সার্চ
+    // রিয়েল-টাইম স্মার্ট সাপ্লায়ার সার্চ
     function filterTable() {
         let input = document.getElementById("searchInput").value.toUpperCase();
         let table = document.getElementById("supplierTable");
@@ -429,7 +432,7 @@ include 'includes/sidebar.php';
     // পেমেন্ট পপআপে ডাটা পাঠানো
     function openPayModal(id, name, dueAmount) {
         if(dueAmount <= 0) {
-            alert("এই কোম্পানির কোনো পাওনা টাকা নেই! তাই পেমেন্টের প্রয়োজন নেই।");
+            alert("এই কোম্পানির কোনো পাওনা টাকা নেই! তাই পেমেন্টের প্রয়োজন নেই।");
             return;
         }
         document.getElementById('pay_supplier_id').value = id;
@@ -440,7 +443,7 @@ include 'includes/sidebar.php';
         myModal.show();
     }
 
-    // ম্যানুয়াল দেনা যোগ পপআপে ডাটা পাঠানো
+    // ম্যানুয়াল দেনা যোগ পপআপে ডাটা পাঠানো
     function openAddDueModal(id, name) {
         document.getElementById('add_due_supplier_id').value = id;
         document.getElementById('add_due_company_name').innerText = name;

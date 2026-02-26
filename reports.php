@@ -4,7 +4,7 @@ require 'includes/auth.php';
 require 'includes/db_connect.php';
 require 'includes/functions.php';
 
-// মালিক ছাড়া অন্য কেউ যেন লাভ-ক্ষতি দেখতে না পারে তার সিকিউরিটি
+// মালিক ছাড়া অন্য কেউ যেন লাভ-ক্ষতি দেখতে না পারে তার সিকিউরিটি
 if($current_user_role != 'admin') {
     die("<h2 style='color:red; text-align:center; margin-top:50px;'>Access Denied! শুধু মালিক এই পেজ দেখতে পারবেন।</h2>");
 }
@@ -29,54 +29,64 @@ if ($filter == 'today') {
     $filter = 'custom';
 }
 
-// ৩. ডাটাবেস থেকে ক্যালকুলেশন (Date Range অনুযায়ী)
+// ৩. ডাটাবেস থেকে ক্যালকুলেশন (Date Range এবং SaaS Shop ID অনুযায়ী)
 
-// ক. সেলস রিপোর্ট (বিক্রি এবং বাকি)
-$stmt_sales = $pdo->prepare("SELECT SUM(total_amount) as total_sales, SUM(paid_amount) as total_paid, SUM(due_amount) as total_due FROM sales WHERE sale_date BETWEEN :start AND :end");
-$stmt_sales->execute(['start' => $start_date, 'end' => $end_date]);
+// ক. সেলস রিপোর্ট (বিক্রি এবং বাকি) - SaaS Update
+$stmt_sales = $pdo->prepare("SELECT SUM(total_amount) as total_sales, SUM(paid_amount) as total_paid, SUM(due_amount) as total_due FROM sales WHERE shop_id = :shop_id AND sale_date BETWEEN :start AND :end");
+$stmt_sales->execute(['shop_id' => $current_shop_id, 'start' => $start_date, 'end' => $end_date]);
 $sales_data = $stmt_sales->fetch();
 $total_sales = $sales_data->total_sales ?? 0;
 $sales_paid = $sales_data->total_paid ?? 0;
 $sales_due = $sales_data->total_due ?? 0;
 
-// খ. পারচেস রিপোর্ট (মাল ক্রয়)
-$stmt_pur = $pdo->prepare("SELECT SUM(total_amount) as total_pur, SUM(due_amount) as due_pur FROM purchases WHERE purchase_date BETWEEN :start AND :end");
-$stmt_pur->execute(['start' => $start_date, 'end' => $end_date]);
+// খ. পারচেস রিপোর্ট (মাল ক্রয়) - SaaS Update
+$stmt_pur = $pdo->prepare("SELECT SUM(total_amount) as total_pur, SUM(due_amount) as due_pur FROM purchases WHERE shop_id = :shop_id AND purchase_date BETWEEN :start AND :end");
+$stmt_pur->execute(['shop_id' => $current_shop_id, 'start' => $start_date, 'end' => $end_date]);
 $pur_data = $stmt_pur->fetch();
 $total_purchase = $pur_data->total_pur ?? 0;
 $purchase_due = $pur_data->due_pur ?? 0;
 
-// গ. গ্রস প্রফিট (Gross Profit = বিক্রয় মূল্য - কেনা মূল্য)
+// গ. গ্রস প্রফিট (Gross Profit = বিক্রয় মূল্য - কেনা মূল্য) - SaaS Update
 $stmt_profit = $pdo->prepare("
     SELECT SUM((si.price - p.purchase_price) * si.qty) as gross_profit 
     FROM sale_items si 
     JOIN sales s ON si.sale_id = s.id 
     JOIN products p ON si.product_id = p.id 
-    WHERE s.sale_date BETWEEN :start AND :end
+    WHERE s.shop_id = :shop_id AND s.sale_date BETWEEN :start AND :end
 ");
-$stmt_profit->execute(['start' => $start_date, 'end' => $end_date]);
+$stmt_profit->execute(['shop_id' => $current_shop_id, 'start' => $start_date, 'end' => $end_date]);
 $gross_profit = $stmt_profit->fetch()->gross_profit ?? 0;
 
-// ঘ. খরচ (Expenses)
-$stmt_expense = $pdo->prepare("SELECT SUM(amount) as total_expense FROM transactions WHERE type = 'Expense' AND date BETWEEN :start AND :end");
-$stmt_expense->execute(['start' => $start_date, 'end' => $end_date]);
+// ঘ. খরচ (Expenses) - SaaS Update
+$stmt_expense = $pdo->prepare("SELECT SUM(amount) as total_expense FROM transactions WHERE shop_id = :shop_id AND type = 'Expense' AND date BETWEEN :start AND :end");
+$stmt_expense->execute(['shop_id' => $current_shop_id, 'start' => $start_date, 'end' => $end_date]);
 $total_expense = $stmt_expense->fetch()->total_expense ?? 0;
 
-// ঙ. বকেয়া আদায় (Due Collections)
-$stmt_collected = $pdo->prepare("SELECT SUM(amount) as total_collected FROM transactions WHERE type = 'Due Collection' AND date BETWEEN :start AND :end");
-$stmt_collected->execute(['start' => $start_date, 'end' => $end_date]);
+// ঙ. বকেয়া আদায় (Due Collections) - SaaS Update
+$stmt_collected = $pdo->prepare("SELECT SUM(amount) as total_collected FROM transactions WHERE shop_id = :shop_id AND type = 'Due Collection' AND date BETWEEN :start AND :end");
+$stmt_collected->execute(['shop_id' => $current_shop_id, 'start' => $start_date, 'end' => $end_date]);
 $total_collected = $stmt_collected->fetch()->total_collected ?? 0;
 
 // চ. নেট প্রফিট (প্রকৃত লাভ)
 $net_profit = $gross_profit - $total_expense;
 
-// ছ. গ্লোবাল সামারি (পুরো ব্যবসার বর্তমান অবস্থা - Date Range এর বাইরে)
-$total_market_due = $pdo->query("SELECT SUM(total_due) as amt FROM customers")->fetch()->amt ?? 0;
-$total_supplier_payable = $pdo->query("SELECT SUM(total_due) as amt FROM suppliers")->fetch()->amt ?? 0;
+// ছ. গ্লোবাল সামারি (পুরো ব্যবসার বর্তমান অবস্থা - Date Range এর বাইরে) - SaaS Update
+$total_market_due = $pdo->prepare("SELECT SUM(total_due) as amt FROM customers WHERE shop_id = ?");
+$total_market_due->execute([$current_shop_id]);
+$total_market_due = $total_market_due->fetch()->amt ?? 0;
 
-// টপ ১০ বকেয়া কাস্টমার এবং সাপ্লায়ার
-$top_customers = $pdo->query("SELECT name, phone, total_due FROM customers WHERE total_due > 0 ORDER BY total_due DESC LIMIT 10")->fetchAll();
-$top_suppliers = $pdo->query("SELECT company_name, phone, total_due FROM suppliers WHERE total_due > 0 ORDER BY total_due DESC LIMIT 10")->fetchAll();
+$total_supplier_payable = $pdo->prepare("SELECT SUM(total_due) as amt FROM suppliers WHERE shop_id = ?");
+$total_supplier_payable->execute([$current_shop_id]);
+$total_supplier_payable = $total_supplier_payable->fetch()->amt ?? 0;
+
+// টপ ১০ বকেয়া কাস্টমার এবং সাপ্লায়ার - SaaS Update
+$stmt_top_cust = $pdo->prepare("SELECT name, phone, total_due FROM customers WHERE shop_id = ? AND total_due > 0 ORDER BY total_due DESC LIMIT 10");
+$stmt_top_cust->execute([$current_shop_id]);
+$top_customers = $stmt_top_cust->fetchAll();
+
+$stmt_top_supp = $pdo->prepare("SELECT company_name, phone, total_due FROM suppliers WHERE shop_id = ? AND total_due > 0 ORDER BY total_due DESC LIMIT 10");
+$stmt_top_supp->execute([$current_shop_id]);
+$top_suppliers = $stmt_top_supp->fetchAll();
 
 // ৪. Frontend Design: লেআউট শুরু
 include 'includes/header.php';
@@ -130,7 +140,7 @@ include 'includes/sidebar.php';
 
 <div id="printReport">
     <div class="text-center mb-4 d-none d-print-block">
-        <h2 class="fw-bold text-dark">Bseba Enterprise</h2>
+        <h2 class="fw-bold text-dark"><?php echo $current_shop_name; ?></h2>
         <h5 class="text-muted">Business Analytics & Profit-Loss Report</h5>
         <p class="fw-bold">Report Period: <span class="text-primary"><?php echo format_date($start_date); ?></span> to <span class="text-primary"><?php echo format_date($end_date); ?></span></p>
         <hr>
@@ -154,7 +164,7 @@ include 'includes/sidebar.php';
         <div class="col-md-3 mb-3">
             <div class="card shadow-sm border-0 border-start border-success border-4 h-100 rounded">
                 <div class="card-body">
-                    <h6 class="text-muted fw-bold"><i class="fas fa-hand-holding-usd text-success"></i> Due Collected (বকেয়া আদায়)</h6>
+                    <h6 class="text-muted fw-bold"><i class="fas fa-hand-holding-usd text-success"></i> Due Collected (বকেয়া আদায়)</h6>
                     <h3 class="fw-bold text-success my-2">+ <?php echo format_taka($total_collected); ?></h3>
                     <small class="text-muted fw-bold">Old dues collected in this period</small>
                 </div>
@@ -163,7 +173,7 @@ include 'includes/sidebar.php';
         <div class="col-md-3 mb-3">
             <div class="card shadow-sm border-0 border-start border-warning border-4 h-100 rounded">
                 <div class="card-body">
-                    <h6 class="text-muted fw-bold"><i class="fas fa-box-open text-warning"></i> Total Purchase (মাল ক্রয়)</h6>
+                    <h6 class="text-muted fw-bold"><i class="fas fa-box-open text-warning"></i> Total Purchase (মাল ক্রয়)</h6>
                     <h3 class="fw-bold text-dark my-2"><?php echo format_taka($total_purchase); ?></h3>
                     <small class="text-danger fw-bold">Unpaid to Supplier: <?php echo format_taka($purchase_due); ?></small>
                 </div>
@@ -240,7 +250,7 @@ include 'includes/sidebar.php';
                                 </tr>
                                 <?php endforeach; ?>
                                 <?php if(count($top_customers) == 0): ?>
-                                    <tr><td colspan="3" class="text-center text-success fw-bold p-3">মার্কেটে কোনো বকেয়া নেই! Excellent!</td></tr>
+                                    <tr><td colspan="3" class="text-center text-success fw-bold p-3">মার্কেটে কোনো বকেয়া নেই! Excellent!</td></tr>
                                 <?php endif; ?>
                             </tbody>
                         </table>

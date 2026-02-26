@@ -7,7 +7,7 @@ require 'includes/functions.php';
 $success_msg = "";
 $error_msg = "";
 
-// [অ্যাকশন ১] মাল কেনার ফর্ম সাবমিট হলে
+// [অ্যাকশন ১] মাল কেনার ফর্ম সাবমিট হলে (SaaS Update)
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_purchase'])) {
     $supplier_id = $_POST['supplier_id'];
     $purchase_date = $_POST['purchase_date'];
@@ -32,9 +32,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_purchase'])) {
     try {
         $pdo->beginTransaction(); // Transaction শুরু
 
-        // ১. Purchases টেবিলে এন্ট্রি
-        $stmt = $pdo->prepare("INSERT INTO purchases (invoice_no, supplier_id, total_amount, paid_amount, due_amount, purchase_date, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)");
-        $stmt->execute([$invoice_no, $supplier_id, $total_amount, $paid_amount, $due_amount, $purchase_date, $current_user_id]);
+        // ১. Purchases টেবিলে এন্ট্রি (shop_id সহ)
+        $stmt = $pdo->prepare("INSERT INTO purchases (shop_id, invoice_no, supplier_id, total_amount, paid_amount, due_amount, purchase_date, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$current_shop_id, $invoice_no, $supplier_id, $total_amount, $paid_amount, $due_amount, $purchase_date, $current_user_id]);
         $purchase_id = $pdo->lastInsertId();
 
         // ২. Purchase Items এবং Stock আপডেট করা
@@ -48,22 +48,22 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_purchase'])) {
             $stmtItem = $pdo->prepare("INSERT INTO purchase_items (purchase_id, product_id, qty, price, total) VALUES (?, ?, ?, ?, ?)");
             $stmtItem->execute([$purchase_id, $p_id, $q, $p, $t]);
             
-            // গোডাউনে স্টক প্লাস (+) করা
-            $stmtStock = $pdo->prepare("UPDATE products SET stock_qty = stock_qty + ?, purchase_price = ? WHERE id = ?");
-            $stmtStock->execute([$q, $p, $p_id]); // কেনা দামও আপডেট হয়ে যাবে
+            // গোডাউনে স্টক প্লাস (+) করা এবং কেনা দাম আপডেট করা (shop_id ফিল্টার)
+            $stmtStock = $pdo->prepare("UPDATE products SET stock_qty = stock_qty + ?, purchase_price = ? WHERE id = ? AND shop_id = ?");
+            $stmtStock->execute([$q, $p, $p_id, $current_shop_id]); 
         }
 
-        // ৩. মহাজনের পাওনা (Due) আপডেট করা
+        // ৩. মহাজনের পাওনা (Due) আপডেট করা (shop_id ফিল্টার)
         if($due_amount > 0) {
-            $stmtDue = $pdo->prepare("UPDATE suppliers SET total_due = total_due + ? WHERE id = ?");
-            $stmtDue->execute([$due_amount, $supplier_id]);
+            $stmtDue = $pdo->prepare("UPDATE suppliers SET total_due = total_due + ? WHERE id = ? AND shop_id = ?");
+            $stmtDue->execute([$due_amount, $supplier_id, $current_shop_id]);
         }
 
-        // ৪. নগদ টাকা দিলে ক্যাশবুক থেকে মাইনাস (Expense) করা
+        // ৪. নগদ টাকা দিলে ক্যাশবুক থেকে মাইনাস (Expense) করা (shop_id সহ)
         if($paid_amount > 0) {
             $note = "Purchase Invoice: " . $invoice_no;
-            $stmtCash = $pdo->prepare("INSERT INTO transactions (type, amount, payment_method, note, date, user_id, supplier_id) VALUES ('Supplier Payment', ?, ?, ?, ?, ?, ?)");
-            $stmtCash->execute([$paid_amount, $payment_method, $note, $purchase_date, $current_user_id, $supplier_id]);
+            $stmtCash = $pdo->prepare("INSERT INTO transactions (shop_id, type, amount, payment_method, note, date, user_id, supplier_id) VALUES (?, 'Supplier Payment', ?, ?, ?, ?, ?, ?)");
+            $stmtCash->execute([$current_shop_id, $paid_amount, $payment_method, $note, $purchase_date, $current_user_id, $supplier_id]);
         }
 
         $pdo->commit();
@@ -75,7 +75,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_purchase'])) {
     }
 }
 
-// চেক করা হচ্ছে ইউজার কি ইনভয়েস দেখতে চাচ্ছে নাকি লিস্ট?
+// চেক করা হচ্ছে ইউজার কি ইনভয়েস দেখতে চাচ্ছে নাকি লিস্ট?
 $view_invoice_id = isset($_GET['view']) ? $_GET['view'] : null;
 
 // ২. Frontend Design: লেআউট শুরু
@@ -102,16 +102,16 @@ include 'includes/sidebar.php';
 <?php endif; ?>
 
 <?php if($view_invoice_id): 
-    // ইনভয়েসের ডাটা আনা
+    // ইনভয়েসের ডাটা আনা (SaaS Update: shop_id ফিল্টার)
     $stmt = $pdo->prepare("SELECT p.*, s.company_name, s.phone, s.address, u.name as entry_by 
                            FROM purchases p 
                            JOIN suppliers s ON p.supplier_id = s.id 
                            JOIN users u ON p.user_id = u.id
-                           WHERE p.id = ?");
-    $stmt->execute([$view_invoice_id]);
+                           WHERE p.id = ? AND p.shop_id = ?");
+    $stmt->execute([$view_invoice_id, $current_shop_id]);
     $invoice = $stmt->fetch();
 
-    if(!$invoice) { die("<div class='alert alert-danger text-center mt-5'>Invoice Not Found!</div>"); }
+    if(!$invoice) { die("<div class='alert alert-danger text-center mt-5'>Invoice Not Found or Access Denied!</div>"); }
 
     // ইনভয়েসের আইটেমগুলো আনা
     $stmtItems = $pdo->prepare("SELECT pi.*, pr.name as product_name FROM purchase_items pi JOIN products pr ON pi.product_id = pr.id WHERE pi.purchase_id = ?");
@@ -130,7 +130,7 @@ include 'includes/sidebar.php';
         <div class="card-body p-5">
             <div class="row border-bottom pb-4 mb-4">
                 <div class="col-sm-6">
-                    <h2 class="fw-bold text-primary mb-0">Bseba Enterprise</h2>
+                    <h2 class="fw-bold text-primary mb-0"><?php echo $current_shop_name; ?></h2>
                     <p class="text-muted mb-0">Purchase & Inventory Record</p>
                 </div>
                 <div class="col-sm-6 text-end">
@@ -145,7 +145,7 @@ include 'includes/sidebar.php';
                     <h6 class="fw-bold text-secondary text-uppercase mb-2">Supplier / Company Details:</h6>
                     <h5 class="fw-bold text-dark mb-1"><?php echo $invoice->company_name; ?></h5>
                     <p class="mb-0"><i class="fas fa-phone-alt text-muted"></i> <?php echo $invoice->phone; ?></p>
-                    <p class="mb-0"><i class="fas fa-map-marker-alt text-muted"></i> <?php echo $invoice->address; ?></p>
+                    <p class="mb-0"><i class="fas fa-map-marker-alt text-muted"></i> <?php echo empty($invoice->address) ? 'N/A' : $invoice->address; ?></p>
                 </div>
             </div>
 
@@ -206,9 +206,18 @@ include 'includes/sidebar.php';
     // ==========================================
     // VIEW 2: PURCHASES LIST & SEARCH (মেইন পেজ)
     // ==========================================
-    $purchases = $pdo->query("SELECT p.*, s.company_name FROM purchases p JOIN suppliers s ON p.supplier_id = s.id ORDER BY p.id DESC")->fetchAll();
-    $suppliers = $pdo->query("SELECT * FROM suppliers ORDER BY company_name ASC")->fetchAll();
-    $products = $pdo->query("SELECT id, name, purchase_price FROM products ORDER BY name ASC")->fetchAll();
+    // SaaS Update: শুধু বর্তমান দোকানের ডাটা টানা হবে
+    $stmtPur = $pdo->prepare("SELECT p.*, s.company_name FROM purchases p JOIN suppliers s ON p.supplier_id = s.id WHERE p.shop_id = ? ORDER BY p.id DESC");
+    $stmtPur->execute([$current_shop_id]);
+    $purchases = $stmtPur->fetchAll();
+    
+    $stmtSup = $pdo->prepare("SELECT * FROM suppliers WHERE shop_id = ? ORDER BY company_name ASC");
+    $stmtSup->execute([$current_shop_id]);
+    $suppliers = $stmtSup->fetchAll();
+    
+    $stmtProd = $pdo->prepare("SELECT id, name, purchase_price FROM products WHERE shop_id = ? ORDER BY name ASC");
+    $stmtProd->execute([$current_shop_id]);
+    $products = $stmtProd->fetchAll();
 ?>
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h3 class="fw-bold text-dark"><i class="fas fa-shopping-basket text-primary"></i> Purchase History</h3>
@@ -221,7 +230,7 @@ include 'includes/sidebar.php';
         <div class="col-md-6">
             <div class="input-group shadow-sm">
                 <span class="input-group-text bg-white border-primary border-end-0"><i class="fas fa-search text-primary"></i></span>
-                <input type="text" id="searchInput" class="form-control border-primary border-start-0 form-control-lg" placeholder="ইনভয়েস নম্বর বা কোম্পানির নাম দিয়ে খুঁজুন..." onkeyup="filterTable()">
+                <input type="text" id="searchInput" class="form-control border-primary border-start-0 form-control-lg" placeholder="ইনভয়েস নম্বর বা কোম্পানির নাম দিয়ে খুঁজুন..." onkeyup="filterTable()">
             </div>
         </div>
     </div>
@@ -250,9 +259,9 @@ include 'includes/sidebar.php';
                             <?php if($row->due_amount <= 0): ?>
                                 <span class="badge bg-success px-3 py-2 rounded-pill shadow-sm">Paid</span>
                             <?php elseif($row->paid_amount > 0 && $row->due_amount > 0): ?>
-                                <span class="badge bg-warning text-dark px-3 py-2 rounded-pill shadow-sm">Partial (Due: <?php echo $row->due_amount; ?>)</span>
+                                <span class="badge bg-warning text-dark px-3 py-2 rounded-pill shadow-sm">Partial (Due: <?php echo format_taka($row->due_amount); ?>)</span>
                             <?php else: ?>
-                                <span class="badge bg-danger px-3 py-2 rounded-pill shadow-sm">Unpaid (Due: <?php echo $row->due_amount; ?>)</span>
+                                <span class="badge bg-danger px-3 py-2 rounded-pill shadow-sm">Unpaid (Due: <?php echo format_taka($row->due_amount); ?>)</span>
                             <?php endif; ?>
                         </td>
                         <td class="text-center pe-4">
@@ -262,6 +271,9 @@ include 'includes/sidebar.php';
                         </td>
                     </tr>
                     <?php endforeach; ?>
+                    <?php if(count($purchases) == 0): ?>
+                        <tr><td colspan="6" class="text-center text-muted p-4">কোনো ক্রয়ের রেকর্ড পাওয়া যায়নি!</td></tr>
+                    <?php endif; ?>
                 </tbody>
             </table>
         </div>
@@ -334,7 +346,7 @@ include 'includes/sidebar.php';
                                         </tr>
                                         <tr>
                                             <td class="align-middle text-success">Paid Amount:</td>
-                                            <td><input type="number" step="0.01" name="paid_amount" id="paid_amount" class="form-control form-control-lg text-end border-success text-success fw-bold" value="0" onkeyup="calculateDue()"></td>
+                                            <td><input type="number" step="0.01" name="paid_amount" id="paid_amount" class="form-control form-control-lg text-end border-success text-success fw-bold" value="0" onkeyup="calculateDue()" onclick="this.select()"></td>
                                         </tr>
                                         <tr>
                                             <td class="align-middle text-danger">Due Amount:</td>
@@ -403,8 +415,8 @@ include 'includes/sidebar.php';
                         <?php endforeach; ?>
                     </select>
                 </td>
-                <td><input type="number" name="qty[]" class="form-control text-center fw-bold qty-input" value="1" min="1" required onkeyup="calculateTotal()" onchange="calculateTotal()"></td>
-                <td><input type="number" step="0.01" name="price[]" class="form-control text-end fw-bold text-danger price-input" value="0" required onkeyup="calculateTotal()"></td>
+                <td><input type="number" name="qty[]" class="form-control text-center fw-bold qty-input" value="1" min="1" required onkeyup="calculateTotal()" onchange="calculateTotal()" onclick="this.select()"></td>
+                <td><input type="number" step="0.01" name="price[]" class="form-control text-end fw-bold text-danger price-input" value="0" required onkeyup="calculateTotal()" onclick="this.select()"></td>
                 <td><input type="text" class="form-control text-end fw-bold text-dark line-total bg-light" value="0.00" readonly></td>
                 <td class="text-center"><button type="button" class="btn btn-danger" onclick="removeRow(this)"><i class="fas fa-trash"></i></button></td>
             </tr>`;

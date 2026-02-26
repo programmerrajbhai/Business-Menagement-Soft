@@ -1,24 +1,32 @@
 <?php
-// pos.php - Advanced Super POS System
+// pos.php - Advanced Super POS System (SaaS Ready)
 require 'includes/auth.php';
 require 'includes/db_connect.php';
 require 'includes/functions.php';
 
-// [Quick Add Customer] - POS পেজ থেকেই কাস্টমার অ্যাড করার লজিক
+// [Quick Add Customer] - POS পেজ থেকেই কাস্টমার অ্যাড করার লজিক (SaaS Update)
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['quick_add_customer'])) {
     $name = $_POST['name'];
     $phone = $_POST['phone'];
     
-    $stmt = $pdo->prepare("INSERT INTO customers (name, phone, address, total_due, credit_limit) VALUES (?, ?, '', 0, 10000)");
-    $stmt->execute([$name, $phone]);
+    $stmt = $pdo->prepare("INSERT INTO customers (shop_id, name, phone, address, total_due, credit_limit) VALUES (?, ?, ?, '', 0, 10000)");
+    $stmt->execute([$current_shop_id, $name, $phone]);
     header("Location: pos.php?msg=customer_added");
     exit();
 }
 
-// কাস্টমার, ক্যাটাগরি এবং প্রোডাক্ট লিস্ট টেনে আনা হচ্ছে
-$customers = $pdo->query("SELECT * FROM customers ORDER BY id DESC")->fetchAll();
+// কাস্টমার, ক্যাটাগরি এবং প্রোডাক্ট লিস্ট টানা হচ্ছে (SaaS Update: shop_id ফিল্টার)
+$stmtCust = $pdo->prepare("SELECT * FROM customers WHERE shop_id = ? ORDER BY id DESC");
+$stmtCust->execute([$current_shop_id]);
+$customers = $stmtCust->fetchAll();
+
+// ক্যাটাগরি (যেহেতু এটি ফিক্সড থাকতে পারে, তাই সরাসরি আনা হলো)
 $categories = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll();
-$products = $pdo->query("SELECT p.*, c.name as cat_name FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.stock_qty > 0 ORDER BY p.name ASC")->fetchAll();
+
+// প্রোডাক্ট লিস্ট টানা (SaaS Update: shop_id ফিল্টার)
+$stmtProd = $pdo->prepare("SELECT p.*, c.name as cat_name FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.shop_id = ? AND p.stock_qty > 0 ORDER BY p.name ASC");
+$stmtProd->execute([$current_shop_id]);
+$products = $stmtProd->fetchAll();
 
 include 'includes/header.php';
 include 'includes/sidebar.php';
@@ -213,7 +221,6 @@ include 'includes/sidebar.php';
 <script>
     let cart = []; // মেইন শপিং কার্ট
 
-    // Audio Beep Sound (No external file needed!)
     function playBeep() {
         let context = new (window.AudioContext || window.webkitAudioContext)();
         let oscillator = context.createOscillator();
@@ -227,7 +234,6 @@ include 'includes/sidebar.php';
         oscillator.stop(context.currentTime + 0.1);
     }
 
-    // Live Product Search
     function filterProducts() {
         let input = document.getElementById("product_search").value.toLowerCase();
         let items = document.querySelectorAll(".product-item");
@@ -241,9 +247,7 @@ include 'includes/sidebar.php';
         });
     }
 
-    // Category Filter
     function filterCategory(catName) {
-        // Update active button color
         $('.category-pills .btn').removeClass('active btn-primary').addClass('btn-outline-primary');
         event.target.classList.remove('btn-outline-primary');
         event.target.classList.add('active', 'btn-primary');
@@ -259,9 +263,8 @@ include 'includes/sidebar.php';
         });
     }
 
-    // Barcode Scanner Logic
     $('#barcode_scanner').on('keypress', function(e) {
-        if(e.which == 13) { // Enter Key
+        if(e.which == 13) { 
             let barcode = $(this).val();
             if(barcode != '') {
                 $.ajax({
@@ -277,14 +280,13 @@ include 'includes/sidebar.php';
                         }
                     }
                 });
-                $(this).val(''); // Input clear
+                $(this).val(''); 
             }
         }
     });
 
-    // Add to Cart Logic
     function addToCart(id, name, price, max_stock) {
-        playBeep(); // Beep Sound
+        playBeep(); 
         let existingItem = cart.find(item => item.id == id);
         if(existingItem) {
             if(existingItem.qty < max_stock) {
@@ -299,7 +301,6 @@ include 'includes/sidebar.php';
         renderCart();
     }
 
-    // Render Cart HTML
     function renderCart() {
         if(cart.length === 0) {
             $('#cartBody').html('<tr><td colspan="5" class="text-center text-muted py-5"><i class="fas fa-cart-arrow-down fa-3x mb-3 text-light"></i><br>Cart is empty! Scan or click products.</td></tr>');
@@ -315,11 +316,8 @@ include 'includes/sidebar.php';
             html += `
             <tr class="bg-white border-bottom">
                 <td class="fw-bold text-primary ps-2" style="font-size:13px; line-height:1.2;">${item.name}</td>
-                
                 <td><input type="number" step="0.01" class="form-control form-control-sm text-center fw-bold text-success border-success" value="${item.price}" onchange="updatePrice(${index}, this.value)" onclick="this.select()"></td>
-                
                 <td><input type="number" class="form-control form-control-sm text-center fw-bold border-primary" value="${item.qty}" min="1" max="${item.max_stock}" onchange="updateQty(${index}, this.value)" onclick="this.select()"></td>
-                
                 <td class="fw-bold text-end pe-2">${item.total.toFixed(2)}</td>
                 <td class="text-center"><button class="btn btn-sm btn-outline-danger" onclick="removeItem(${index})"><i class="fas fa-trash"></i></button></td>
             </tr>`;
@@ -329,7 +327,6 @@ include 'includes/sidebar.php';
         calculateFinal(subTotal);
     }
 
-    // Dynamic Price Update
     function updatePrice(index, newPrice) {
         let price = parseFloat(newPrice) || 0;
         cart[index].price = price;
@@ -337,7 +334,6 @@ include 'includes/sidebar.php';
         renderCart();
     }
 
-    // Dynamic Qty Update
     function updateQty(index, newQty) {
         let qty = parseFloat(newQty) || 1;
         if(qty > cart[index].max_stock) {
@@ -349,13 +345,11 @@ include 'includes/sidebar.php';
         renderCart();
     }
 
-    // Remove Item
     function removeItem(index) {
         cart.splice(index, 1);
         renderCart();
     }
     
-    // Clear Cart completely
     function clearCart() {
         if(cart.length > 0) {
             Swal.fire({
@@ -375,7 +369,6 @@ include 'includes/sidebar.php';
         }
     }
 
-    // Quick Cash Buttons Logic
     function addQuickCash(amount) {
         let currentPaid = parseFloat($('#paid_amount').val()) || 0;
         $('#paid_amount').val(currentPaid + amount);
@@ -388,7 +381,6 @@ include 'includes/sidebar.php';
         calculateFinal();
     }
 
-    // Final Math (Vat, Discount, Due)
     function calculateFinal(subTotal = null) {
         if(subTotal === null) {
             subTotal = cart.reduce((sum, item) => sum + item.total, 0);
@@ -401,14 +393,12 @@ include 'includes/sidebar.php';
         let due = netPayable - paid;
         
         if(due < 0) {
-            // Negative due means Change to give back
             $('#due_display').html('<span class="text-success">Change: ৳ ' + Math.abs(due).toFixed(2) + '</span>');
-            due = 0; // For DB, due is 0
+            due = 0; 
         } else {
             $('#due_display').html('৳ ' + due.toFixed(2));
         }
         
-        // Disable checkout if walking customer but trying to keep Due
         let customerId = $('#customer_id').val();
         if(customerId == 3 && due > 0) {
             $('#due_display').append('<br><small class="text-danger fw-bold">Walking Customer cannot have Due!</small>');
@@ -418,7 +408,6 @@ include 'includes/sidebar.php';
         }
     }
 
-    // Keyboard Shortcuts
     $(document).on('keydown', function(e) {
         if (e.key === "F2") {
             e.preventDefault();
@@ -426,7 +415,6 @@ include 'includes/sidebar.php';
         }
     });
 
-    // Final Submit (AJAX)
     function completeSale() {
         if(cart.length == 0) {
             Swal.fire({ icon: 'warning', title: 'Empty Cart', text: 'Please add products to cart first!' });
@@ -438,16 +426,14 @@ include 'includes/sidebar.php';
         let payable = subTotal - discount;
         let paid = parseFloat($('#paid_amount').val()) || 0;
         let due = payable - paid;
-        if(due < 0) due = 0; // If paid more, due is 0.
+        if(due < 0) due = 0; 
 
-        // Prevent walking customer due validation
         let customerId = $('#customer_id').val();
         if(customerId == 3 && due > 0) {
             Swal.fire({ icon: 'error', title: 'Not Allowed', text: 'Walking Customers must pay in full cash. Please add a customer profile to keep Due.' });
             return;
         }
 
-        // Disable button to prevent double click
         $('#checkoutBtn').prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Processing...');
 
         let saleData = {
@@ -484,7 +470,6 @@ include 'includes/sidebar.php';
         });
     }
 
-    // Check for URL msg (After adding customer)
     $(document).ready(function() {
         const urlParams = new URLSearchParams(window.location.search);
         if(urlParams.get('msg') === 'customer_added') {

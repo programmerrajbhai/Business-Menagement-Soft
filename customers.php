@@ -7,7 +7,7 @@ require 'includes/functions.php';
 $success_msg = "";
 $error_msg = "";
 
-// [অ্যাকশন ১] নতুন কাস্টমার সেভ করা
+// [অ্যাকশন ১] নতুন কাস্টমার সেভ করা (SaaS Update: shop_id যুক্ত করা হয়েছে)
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_customer'])) {
     $name = $_POST['name'];
     $phone = $_POST['phone'];
@@ -16,16 +16,16 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_customer'])) {
     $credit_limit = !empty($_POST['credit_limit']) ? $_POST['credit_limit'] : 10000.00;
 
     try {
-        $sql = "INSERT INTO customers (name, phone, address, total_due, credit_limit) VALUES (?, ?, ?, ?, ?)";
+        $sql = "INSERT INTO customers (shop_id, name, phone, address, total_due, credit_limit) VALUES (?, ?, ?, ?, ?, ?)";
         $stmt = $pdo->prepare($sql);
-        $stmt->execute([$name, $phone, $address, $total_due, $credit_limit]);
+        $stmt->execute([$current_shop_id, $name, $phone, $address, $total_due, $credit_limit]);
         $success_msg = "নতুন কাস্টমার সফলভাবে যোগ করা হয়েছে!";
     } catch(PDOException $e) {
         $error_msg = "সমস্যা হয়েছে: " . $e->getMessage();
     }
 }
 
-// [অ্যাকশন ২] বকেয়া (Due) আদায় বা রিসিভ করা
+// [অ্যাকশন ২] বকেয়া (Due) আদায় বা রিসিভ করা (SaaS Update: shop_id যুক্ত করা হয়েছে)
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['receive_due'])) {
     $c_id = $_POST['customer_id'];
     $amount = $_POST['amount'];
@@ -35,13 +35,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['receive_due'])) {
 
     try {
         $pdo->beginTransaction();
-        // কাস্টমারের বকেয়া কমানো
-        $stmtDue = $pdo->prepare("UPDATE customers SET total_due = total_due - ? WHERE id = ?");
-        $stmtDue->execute([$amount, $c_id]);
+        // কাস্টমারের বকেয়া কমানো (শুধু নিজের দোকানের কাস্টমার)
+        $stmtDue = $pdo->prepare("UPDATE customers SET total_due = total_due - ? WHERE id = ? AND shop_id = ?");
+        $stmtDue->execute([$amount, $c_id, $current_shop_id]);
 
-        // ক্যাশবুকে জমার এন্ট্রি করা (customer_id সহ)
-        $stmtCash = $pdo->prepare("INSERT INTO transactions (type, amount, payment_method, note, date, user_id, customer_id) VALUES ('Due Collection', ?, ?, ?, ?, ?, ?)");
-        $stmtCash->execute([$amount, $method, $note, $date, $current_user_id, $c_id]);
+        // ক্যাশবুকে জমার এন্ট্রি করা (shop_id সহ)
+        $stmtCash = $pdo->prepare("INSERT INTO transactions (shop_id, type, amount, payment_method, note, date, user_id, customer_id) VALUES (?, 'Due Collection', ?, ?, ?, ?, ?, ?)");
+        $stmtCash->execute([$current_shop_id, $amount, $method, $note, $date, $current_user_id, $c_id]);
 
         $pdo->commit();
         $success_msg = "বকেয়া টাকা সফলভাবে আদায় হয়েছে এবং গাল্লায় জমা হয়েছে!";
@@ -51,7 +51,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['receive_due'])) {
     }
 }
 
-// [অ্যাকশন ৩] নতুন বকেয়া বা হাওলাত যোগ করা (Manual Due Add)
+// [অ্যাকশন ৩] নতুন বকেয়া বা হাওলাত যোগ করা (Manual Due Add) (SaaS Update)
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_manual_due'])) {
     $c_id = $_POST['customer_id'];
     $amount = $_POST['amount'];
@@ -61,18 +61,18 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_manual_due'])) {
     try {
         $pdo->beginTransaction();
         // কাস্টমারের বকেয়া বাড়ানো
-        $stmtDue = $pdo->prepare("UPDATE customers SET total_due = total_due + ? WHERE id = ?");
-        $stmtDue->execute([$amount, $c_id]);
+        $stmtDue = $pdo->prepare("UPDATE customers SET total_due = total_due + ? WHERE id = ? AND shop_id = ?");
+        $stmtDue->execute([$amount, $c_id, $current_shop_id]);
 
-        // হালখাতায় দেখানোর জন্য ট্রানজেকশনে এন্ট্রি (কিন্তু গাল্লায় ক্যাশ ইন হবে না)
-        $stmtCash = $pdo->prepare("INSERT INTO transactions (type, amount, payment_method, note, date, user_id, customer_id) VALUES ('Manual Due Add', ?, 'N/A', ?, ?, ?, ?)");
-        $stmtCash->execute([$amount, $note, $date, $current_user_id, $c_id]);
+        // হালখাতায় দেখানোর জন্য ট্রানজেকশনে এন্ট্রি 
+        $stmtCash = $pdo->prepare("INSERT INTO transactions (shop_id, type, amount, payment_method, note, date, user_id, customer_id) VALUES (?, 'Manual Due Add', ?, 'N/A', ?, ?, ?, ?)");
+        $stmtCash->execute([$current_shop_id, $amount, $note, $date, $current_user_id, $c_id]);
 
         $pdo->commit();
-        $success_msg = "কাস্টমারের খাতায় নতুন বকেয়া সফলভাবে যোগ করা হয়েছে!";
+        $success_msg = "কাস্টমারের খাতায় নতুন বকেয়া সফলভাবে যোগ করা হয়েছে!";
     } catch(PDOException $e) {
         $pdo->rollBack();
-        $error_msg = "বকেয়া যোগ করতে সমস্যা হয়েছে: " . $e->getMessage();
+        $error_msg = "বকেয়া যোগ করতে সমস্যা হয়েছে: " . $e->getMessage();
     }
 }
 
@@ -103,28 +103,28 @@ include 'includes/sidebar.php';
 <?php endif; ?>
 
 <?php if($view_profile_id): 
-    // কাস্টমারের ডাটা আনা
-    $stmt = $pdo->prepare("SELECT * FROM customers WHERE id = ?");
-    $stmt->execute([$view_profile_id]);
+    // কাস্টমারের ডাটা আনা (SaaS Update: shop_id ফিল্টার)
+    $stmt = $pdo->prepare("SELECT * FROM customers WHERE id = ? AND shop_id = ?");
+    $stmt->execute([$view_profile_id, $current_shop_id]);
     $customer = $stmt->fetch();
 
     if(!$customer) {
-        die("<div class='alert alert-danger text-center mt-5'>Customer Not Found!</div>");
+        die("<div class='alert alert-danger text-center mt-5'>Customer Not Found or Access Denied!</div>");
     }
 
-    // কাস্টমারের সম্পূর্ণ লেজার (Sale + Due Collection + Manual Due) একসাথে আনা
+    // কাস্টমারের সম্পূর্ণ লেজার (SaaS Update: সব জায়গায় shop_id ফিল্টার)
     $ledger_stmt = $pdo->prepare("
         SELECT sale_date as date, invoice_no as ref, 'Sale Bill' as type, total_amount as bill, paid_amount as paid, due_amount as due 
-        FROM sales WHERE customer_id = ?
+        FROM sales WHERE customer_id = ? AND shop_id = ?
         UNION ALL
         SELECT date as date, note as ref, 'Payment Received' as type, 0 as bill, amount as paid, 0 as due 
-        FROM transactions WHERE type = 'Due Collection' AND customer_id = ?
+        FROM transactions WHERE type = 'Due Collection' AND customer_id = ? AND shop_id = ?
         UNION ALL
         SELECT date as date, note as ref, 'Manual Due Added' as type, amount as bill, 0 as paid, amount as due 
-        FROM transactions WHERE type = 'Manual Due Add' AND customer_id = ?
+        FROM transactions WHERE type = 'Manual Due Add' AND customer_id = ? AND shop_id = ?
         ORDER BY date DESC
     ");
-    $ledger_stmt->execute([$view_profile_id, $view_profile_id, $view_profile_id]);
+    $ledger_stmt->execute([$view_profile_id, $current_shop_id, $view_profile_id, $current_shop_id, $view_profile_id, $current_shop_id]);
     $ledgers = $ledger_stmt->fetchAll();
 ?>
     <div class="d-flex justify-content-between align-items-center mb-4 no-print">
@@ -154,10 +154,10 @@ include 'includes/sidebar.php';
                     </div>
                     
                     <button class="btn btn-success fw-bold w-100 mb-2 py-2 shadow-sm" onclick="openReceiveDueModal(<?php echo $customer->id; ?>, '<?php echo addslashes($customer->name); ?>', <?php echo $customer->total_due; ?>)">
-                        <i class="fas fa-hand-holding-usd"></i> Receive Payment (বকেয়া আদায়)
+                        <i class="fas fa-hand-holding-usd"></i> Receive Payment (বকেয়া আদায়)
                     </button>
                     <button class="btn btn-outline-danger fw-bold w-100 mb-2" onclick="openAddDueModal(<?php echo $customer->id; ?>, '<?php echo addslashes($customer->name); ?>')">
-                        <i class="fas fa-plus-circle"></i> Add Due (নতুন বকেয়া যোগ)
+                        <i class="fas fa-plus-circle"></i> Add Due (নতুন বকেয়া যোগ)
                     </button>
                     <button class="btn btn-dark fw-bold w-100" onclick="window.print()">
                         <i class="fas fa-print"></i> Print Ledger (খাতা প্রিন্ট)
@@ -210,7 +210,7 @@ include 'includes/sidebar.php';
                             </tbody>
                             <tfoot class="table-light d-none d-print-table-row">
                                 <tr>
-                                    <th colspan="3" class="text-end">Current Total Due (সর্বমোট বকেয়া):</th>
+                                    <th colspan="3" class="text-end">Current Total Due (সর্বমোট বকেয়া):</th>
                                     <th colspan="2" class="text-center text-danger fs-5"><?php echo format_taka($customer->total_due); ?></th>
                                 </tr>
                             </tfoot>
@@ -225,7 +225,10 @@ include 'includes/sidebar.php';
     // ==========================================
     // VIEW 2: CUSTOMERS LIST & SEARCH (মেইন পেজ)
     // ==========================================
-    $customers = $pdo->query("SELECT * FROM customers ORDER BY id DESC")->fetchAll();
+    // SaaS Update: শুধু বর্তমান দোকানের কাস্টমারদের ডাটা টানা হবে
+    $stmt = $pdo->prepare("SELECT * FROM customers WHERE shop_id = ? ORDER BY id DESC");
+    $stmt->execute([$current_shop_id]);
+    $customers = $stmt->fetchAll();
 ?>
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h3 class="fw-bold text-dark"><i class="fas fa-users text-primary"></i> Business Customers</h3>
@@ -238,7 +241,7 @@ include 'includes/sidebar.php';
         <div class="col-md-6">
             <div class="input-group shadow-sm">
                 <span class="input-group-text bg-white border-primary border-end-0"><i class="fas fa-search text-primary"></i></span>
-                <input type="text" id="searchInput" class="form-control border-primary border-start-0 form-control-lg" placeholder="কাস্টমারের নাম বা নাম্বার দিয়ে খুঁজুন..." onkeyup="filterTable()">
+                <input type="text" id="searchInput" class="form-control border-primary border-start-0 form-control-lg" placeholder="কাস্টমারের নাম বা নাম্বার দিয়ে খুঁজুন..." onkeyup="filterTable()">
             </div>
         </div>
     </div>
@@ -276,8 +279,8 @@ include 'includes/sidebar.php';
                                 </a>
                                 <button type="button" class="btn btn-sm btn-primary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown"></button>
                                 <ul class="dropdown-menu dropdown-menu-end shadow">
-                                    <li><a class="dropdown-item fw-bold text-success" href="#" onclick="openReceiveDueModal(<?php echo $row->id; ?>, '<?php echo addslashes($row->name); ?>', <?php echo $row->total_due; ?>)"><i class="fas fa-hand-holding-usd"></i> বকেয়া আদায় করুন</a></li>
-                                    <li><a class="dropdown-item fw-bold text-danger" href="#" onclick="openAddDueModal(<?php echo $row->id; ?>, '<?php echo addslashes($row->name); ?>')"><i class="fas fa-plus-circle"></i> নতুন বকেয়া যোগ করুন</a></li>
+                                    <li><a class="dropdown-item fw-bold text-success" href="#" onclick="openReceiveDueModal(<?php echo $row->id; ?>, '<?php echo addslashes($row->name); ?>', <?php echo $row->total_due; ?>)"><i class="fas fa-hand-holding-usd"></i> বকেয়া আদায় করুন</a></li>
+                                    <li><a class="dropdown-item fw-bold text-danger" href="#" onclick="openAddDueModal(<?php echo $row->id; ?>, '<?php echo addslashes($row->name); ?>')"><i class="fas fa-plus-circle"></i> নতুন বকেয়া যোগ করুন</a></li>
                                     <li><hr class="dropdown-divider"></li>
                                     <li><a class="dropdown-item" href="tel:<?php echo $row->phone; ?>"><i class="fas fa-phone-alt text-dark"></i> Call Customer</a></li>
                                 </ul>
@@ -314,7 +317,7 @@ include 'includes/sidebar.php';
                     </div>
                     <div class="row">
                         <div class="col-md-6 mb-3">
-                            <label class="form-label fw-bold text-danger">Previous Due (সাবেক বকেয়া)</label>
+                            <label class="form-label fw-bold text-danger">Previous Due (সাবেক বকেয়া)</label>
                             <input type="number" step="0.01" name="total_due" class="form-control" value="0">
                         </div>
                         <div class="col-md-6 mb-3">
@@ -377,7 +380,7 @@ include 'includes/sidebar.php';
     <div class="modal-dialog">
         <div class="modal-content border-danger border-3">
             <div class="modal-header bg-danger text-white">
-                <h5 class="modal-title fw-bold"><i class="fas fa-plus-circle"></i> Add Manual Due (বকেয়া যোগ)</h5>
+                <h5 class="modal-title fw-bold"><i class="fas fa-plus-circle"></i> Add Manual Due (বকেয়া যোগ)</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST" action="customers.php<?php echo isset($view_profile_id) ? '?profile='.$view_profile_id : ''; ?>">
@@ -386,12 +389,12 @@ include 'includes/sidebar.php';
                     
                     <div class="text-center mb-3">
                         <h5 class="fw-bold text-primary mb-0" id="add_due_customer_name">Customer Name</h5>
-                        <small class="text-muted">এই ফর্ম দিয়ে বেচাকেনা ছাড়াই কাস্টমারের খাতায় বকেয়া যোগ করা যাবে।</small>
+                        <small class="text-muted">এই ফর্ম দিয়ে বেচাকেনা ছাড়াই কাস্টমারের খাতায় বকেয়া যোগ করা যাবে।</small>
                     </div>
                     <hr>
                     <div class="mb-3">
                         <label class="form-label fw-bold text-danger">Due Amount (৳) *</label>
-                        <input type="number" step="0.01" name="amount" class="form-control form-control-lg border-danger text-danger fw-bold" placeholder="কত টাকা বকেয়া যোগ করবেন?" required>
+                        <input type="number" step="0.01" name="amount" class="form-control form-control-lg border-danger text-danger fw-bold" placeholder="কত টাকা বকেয়া যোগ করবেন?" required>
                     </div>
                     <div class="mb-3">
                         <label class="form-label fw-bold">Reason / Note *</label>
@@ -426,10 +429,10 @@ include 'includes/sidebar.php';
         }
     }
 
-    // বকেয়া আদায় পপআপে ডাটা পাঠানো
+    // বকেয়া আদায় পপআপে ডাটা পাঠানো
     function openReceiveDueModal(id, name, dueAmount) {
         if(dueAmount <= 0) {
-            alert("এই কাস্টমারের কোনো বকেয়া নেই! তাই জমার প্রয়োজন নেই।");
+            alert("এই কাস্টমারের কোনো বকেয়া নেই! তাই জমার প্রয়োজন নেই।");
             return;
         }
         document.getElementById('receive_customer_id').value = id;
@@ -440,7 +443,7 @@ include 'includes/sidebar.php';
         myModal.show();
     }
 
-    // ম্যানুয়াল বকেয়া যোগ পপআপে ডাটা পাঠানো
+    // ম্যানুয়াল বকেয়া যোগ পপআপে ডাটা পাঠানো
     function openAddDueModal(id, name) {
         document.getElementById('add_due_customer_id').value = id;
         document.getElementById('add_due_customer_name').innerText = name;

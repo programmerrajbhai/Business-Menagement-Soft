@@ -7,7 +7,7 @@ require 'includes/functions.php';
 $success_msg = "";
 $error_msg = "";
 
-// [অ্যাকশন ১] নতুন প্রোডাক্ট সেভ করা
+// [অ্যাকশন ১] নতুন প্রোডাক্ট সেভ করা (SaaS Update: shop_id যুক্ত করা হয়েছে)
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_product'])) {
     $name = $_POST['name'];
     $category_id = $_POST['category_id'];
@@ -20,17 +20,18 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_product'])) {
     $alert_qty = $_POST['alert_qty'];
 
     try {
-        $sql = "INSERT INTO products (name, category_id, barcode, purchase_price, sale_price, wholesale_price, stock_qty, unit, alert_qty) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        $sql = "INSERT INTO products (shop_id, name, category_id, barcode, purchase_price, sale_price, wholesale_price, stock_qty, unit, alert_qty) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         $stmt = $pdo->prepare($sql);
-        $stmt->execute([$name, $category_id, $barcode, $purchase_price, $sale_price, $wholesale_price, $stock_qty, $unit, $alert_qty]);
+        // $current_shop_id দিয়ে নির্দিষ্ট দোকানের মাল হিসেবে সেভ করা হলো
+        $stmt->execute([$current_shop_id, $name, $category_id, $barcode, $purchase_price, $sale_price, $wholesale_price, $stock_qty, $unit, $alert_qty]);
         $success_msg = "নতুন প্রোডাক্ট সফলভাবে স্টকে যোগ করা হয়েছে!";
     } catch(PDOException $e) {
-        $error_msg = "সমস্যা হয়েছে (বারকোড হয়তো মিলে গেছে): " . $e->getMessage();
+        $error_msg = "সমস্যা হয়েছে (বারকোড হয়তো মিলে গেছে): " . $e->getMessage();
     }
 }
 
-// [অ্যাকশন ২] প্রোডাক্ট এডিট/আপডেট করা
+// [অ্যাকশন ২] প্রোডাক্ট এডিট/আপডেট করা (SaaS Update: shop_id যুক্ত করা হয়েছে)
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['edit_product'])) {
     $id = $_POST['product_id'];
     $name = $_POST['name'];
@@ -44,48 +45,50 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['edit_product'])) {
     $alert_qty = $_POST['alert_qty'];
 
     try {
-        $sql = "UPDATE products SET name=?, category_id=?, barcode=?, purchase_price=?, sale_price=?, wholesale_price=?, stock_qty=?, unit=?, alert_qty=? WHERE id=?";
+        $sql = "UPDATE products SET name=?, category_id=?, barcode=?, purchase_price=?, sale_price=?, wholesale_price=?, stock_qty=?, unit=?, alert_qty=? WHERE id=? AND shop_id=?";
         $stmt = $pdo->prepare($sql);
-        $stmt->execute([$name, $category_id, $barcode, $purchase_price, $sale_price, $wholesale_price, $stock_qty, $unit, $alert_qty, $id]);
+        $stmt->execute([$name, $category_id, $barcode, $purchase_price, $sale_price, $wholesale_price, $stock_qty, $unit, $alert_qty, $id, $current_shop_id]);
         $success_msg = "প্রোডাক্টের তথ্য সফলভাবে আপডেট করা হয়েছে!";
     } catch(PDOException $e) {
         $error_msg = "আপডেট করতে সমস্যা হয়েছে: " . $e->getMessage();
     }
 }
 
-// [অ্যাকশন ৩] প্রোডাক্ট ডিলিট করা
+// [অ্যাকশন ৩] প্রোডাক্ট ডিলিট করা (SaaS Update: shop_id ফিল্টার)
 if (isset($_GET['delete_id'])) {
     if($current_user_role == 'admin') {
         try {
-            $stmt = $pdo->prepare("DELETE FROM products WHERE id = ?");
-            $stmt->execute([$_GET['delete_id']]);
+            $stmt = $pdo->prepare("DELETE FROM products WHERE id = ? AND shop_id = ?");
+            $stmt->execute([$_GET['delete_id'], $current_shop_id]);
             $success_msg = "প্রোডাক্ট ডাটাবেস থেকে মুছে ফেলা হয়েছে!";
         } catch(PDOException $e) {
-            $error_msg = "এই প্রোডাক্টটি অলরেডি সেল বা পারচেস করা হয়েছে, তাই ডিলিট করা যাবে না। আপনি চাইলে স্টক ০ করে দিতে পারেন।";
+            $error_msg = "এই প্রোডাক্টটি অলরেডি সেল বা পারচেস করা হয়েছে, তাই ডিলিট করা যাবে না। আপনি চাইলে স্টক ০ করে দিতে পারেন।";
         }
     } else {
         $error_msg = "আপনার প্রোডাক্ট ডিলিট করার পারমিশন নেই!";
     }
 }
 
-// --- ইনভেন্টরি ক্যালকুলেশন (মালিকের জন্য) ---
+// --- ইনভেন্টরি ক্যালকুলেশন (SaaS Update: শুধু বর্তমান দোকানের প্রোডাক্ট) ---
 $total_products = 0;
 $total_stock_value = 0;
 $total_retail_value = 0;
 $low_stock_count = 0;
 
-$stmt = $pdo->query("SELECT p.*, c.name as category_name FROM products p LEFT JOIN categories c ON p.category_id = c.id ORDER BY p.id DESC");
+$stmt = $pdo->prepare("SELECT p.*, c.name as category_name FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.shop_id = ? ORDER BY p.id DESC");
+$stmt->execute([$current_shop_id]);
 $products = $stmt->fetchAll();
 
 foreach($products as $p) {
     $total_products++;
     $total_stock_value += ($p->purchase_price * $p->stock_qty); // গোডাউনে কেনা দামের মাল
-    $total_retail_value += ($p->sale_price * $p->stock_qty);    // গোডাউনে বিক্রয় দামের মাল
+    $total_retail_value += ($p->sale_price * $p->stock_qty);    // গোডাউনে বিক্রয় দামের মাল
     if($p->stock_qty <= $p->alert_qty) {
         $low_stock_count++;
     }
 }
 
+// ক্যাটাগরি লিস্ট টানা হচ্ছে
 $categories = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll();
 
 // ২. Frontend Design: লেআউট শুরু
@@ -140,7 +143,7 @@ include 'includes/sidebar.php';
     <div class="col-md-3">
         <div class="card bg-white shadow-sm border-0 border-start border-success border-4 h-100 rounded">
             <div class="card-body">
-                <p class="text-muted fw-bold mb-1"><i class="fas fa-tags"></i> Retail Value (বিক্রয় দাম)</p>
+                <p class="text-muted fw-bold mb-1"><i class="fas fa-tags"></i> Retail Value (বিক্রয় দাম)</p>
                 <h3 class="fw-bold text-success"><?php echo format_taka($total_retail_value); ?></h3>
                 <small class="text-success fw-bold">Est. Profit: <?php echo format_taka($total_retail_value - $total_stock_value); ?></small>
             </div>
@@ -379,9 +382,9 @@ include 'includes/sidebar.php';
                         </div>
 
                         <div class="col-md-6 mb-3">
-                            <label class="form-label fw-bold">Update Stock (ম্যানুয়াল স্টক)</label>
+                            <label class="form-label fw-bold">Update Stock (ম্যানুয়াল স্টক)</label>
                             <input type="number" name="stock_qty" id="edit_stock" class="form-control fw-bold" required>
-                            <small class="text-muted">স্টক এডিট করলে সরাসরি গোডাউনের মাল চেঞ্জ হয়ে যাবে।</small>
+                            <small class="text-muted">স্টক এডিট করলে সরাসরি গোডাউনের মাল চেঞ্জ হয়ে যাবে।</small>
                         </div>
                         <div class="col-md-6 mb-3">
                             <label class="form-label fw-bold">Low Stock Alert</label>

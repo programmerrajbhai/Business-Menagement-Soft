@@ -72,7 +72,7 @@ $is_product_menu = in_array($current_page, ['products.php', 'barcode.php']);
 <nav id="sidebar">
     <div class="sidebar-header border-bottom border-secondary pb-3 mb-3 text-center">
         <i class="fas fa-layer-group text-warning fs-3 mb-2"></i> 
-        <h4 class="fw-bold mb-0 text-white">Bseba ERP</h4>
+        <h4 class="fw-bold mb-0 text-white"><?php echo $current_shop_name; ?></h4>
     </div>
     
     <ul class="list-unstyled components">
