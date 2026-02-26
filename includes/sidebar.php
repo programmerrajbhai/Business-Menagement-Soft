@@ -126,6 +126,11 @@ $is_product_menu = in_array($current_page, ['products.php', 'barcode.php']);
         <li class="<?php echo ($current_page == 'reports.php') ? 'active' : ''; ?>">
             <a href="reports.php"><i class="fas fa-chart-line me-2"></i> রিপোর্ট ও লাভ-ক্ষতি</a>
         </li>
+        
+        <li class="<?php echo ($current_page == 'backup.php') ? 'active' : ''; ?>">
+            <a href="backup.php"><i class="fas fa-database me-2"></i> ডাটা ব্যাকআপ (Backup)</a>
+        </li>
+        
         <li class="<?php echo ($current_page == 'settings.php') ? 'active' : ''; ?>">
             <a href="settings.php"><i class="fas fa-cog me-2"></i> সিস্টেম সেটিংস</a>
         </li>
@@ -167,6 +172,7 @@ $is_product_menu = in_array($current_page, ['products.php', 'barcode.php']);
                         <a class="dropdown-item fw-bold text-danger py-2" href="logout.php">
                             <i class="fas fa-sign-out-alt"></i> লগআউট
                         </a>
+                        
                     </li>
                 </ul>
             </div>
