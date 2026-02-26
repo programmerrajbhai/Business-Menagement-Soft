@@ -2,9 +2,15 @@
 // login.php (রুট ডিরেক্টরিতে থাকবে)
 session_start();
 
-// যদি আগে থেকেই লগিন করা থাকে, তবে সরাসরি ড্যাশবোর্ডে পাঠিয়ে দাও
+$super_admin_phone = '01711000000'; // আপনার (Super Admin) নাম্বার
+
+// যদি আগে থেকেই লগিন করা থাকে
 if (isset($_SESSION['user_id'])) {
-    header("Location: index.php");
+    if(isset($_SESSION['user_phone']) && $_SESSION['user_phone'] == $super_admin_phone){
+        header("Location: super_admin.php");
+    } else {
+        header("Location: index.php");
+    }
     exit();
 }
 
@@ -17,25 +23,53 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $password = md5($_POST['password']); 
 
     try {
-        // সাধারণ লগিন লজিক (SaaS ছাড়া)
-        // u.status = 1 বাদ দেওয়া হয়েছে যাতে কোনোভাবেই এরর না আসে
-        $stmt = $pdo->prepare("SELECT * FROM users WHERE phone = :phone AND password = :password");
+        // SaaS লগিন লজিক (LEFT JOIN ব্যবহার করা হয়েছে যাতে সুপার এডমিন এবং ক্লায়েন্ট সবাই লগিন করতে পারে)
+        $stmt = $pdo->prepare("
+            SELECT u.*, s.valid_until, s.status as shop_status, s.shop_name 
+            FROM users u 
+            LEFT JOIN shops s ON u.shop_id = s.id 
+            WHERE u.phone = :phone AND u.password = :password
+        ");
         $stmt->execute(['phone' => $phone, 'password' => $password]);
         $user = $stmt->fetch();
 
         if ($user) {
-            // লগিন সাকসেস! সেশনে ডাটা সেভ করছি
-            $_SESSION['user_id'] = $user->id;
-            $_SESSION['user_name'] = $user->name;
-            $_SESSION['user_role'] = $user->role;
-            
-            header("Location: index.php"); // ড্যাশবোর্ডে রিডাইরেক্ট
-            exit();
+            // ১. চেক: ইউজার কি সুপার এডমিন?
+            if ($user->phone == $super_admin_phone) {
+                $_SESSION['user_id'] = $user->id;
+                $_SESSION['user_name'] = $user->name;
+                $_SESSION['user_role'] = 'super_admin';
+                $_SESSION['user_phone'] = $user->phone;
+                
+                header("Location: super_admin.php"); // সরাসরি সুপার এডমিন প্যানেলে যাবে
+                exit();
+            } 
+            // ২. চেক: সাধারণ দোকানদার হলে মেয়াদের হিসাব হবে
+            else {
+                $today = date('Y-m-d');
+                
+                if ($user->shop_status == 'suspended') {
+                    $error_msg = "⛔ আপনার সফটওয়্যারটি লক করা হয়েছে! এডমিনের সাথে যোগাযোগ করুন।";
+                } elseif ($user->valid_until < $today) {
+                    $error_msg = "⚠️ আপনার মেয়াদের তারিখ (".date('d M, Y', strtotime($user->valid_until)).") পার হয়ে গেছে! দয়া করে বিল পরিশোধ করুন।";
+                } else {
+                    // লগিন সাকসেস!
+                    $_SESSION['user_id'] = $user->id;
+                    $_SESSION['shop_id'] = $user->shop_id; // SaaS এর প্রাণ!
+                    $_SESSION['shop_name'] = $user->shop_name;
+                    $_SESSION['user_name'] = $user->name;
+                    $_SESSION['user_role'] = $user->role;
+                    $_SESSION['user_phone'] = $user->phone;
+                    
+                    header("Location: index.php"); // দোকানের ড্যাশবোর্ডে যাবে
+                    exit();
+                }
+            }
         } else {
             $error_msg = "ভুল মোবাইল নাম্বার অথবা পাসওয়ার্ড!";
         }
     } catch(PDOException $e) {
-        $error_msg = "সিস্টেম এরর: " . $e->getMessage();
+        $error_msg = "সিস্টেম এরর (ডাটাবেস চেক করুন): " . $e->getMessage();
     }
 }
 ?>
@@ -98,7 +132,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     <p class="text-center text-muted mb-4">অ্যাডমিন প্যানেলে নিরাপদ লগিন</p>
     
     <?php if(!empty($error_msg)): ?>
-        <div class="alert alert-danger text-center shadow-sm py-2 fw-bold">
+        <div class="alert alert-danger text-center shadow-sm py-2 fw-bold" style="font-size: 14px;">
             <i class="fas fa-exclamation-triangle"></i> <?php echo $error_msg; ?>
         </div>
     <?php endif; ?>
